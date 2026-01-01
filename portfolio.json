@@ -1,0 +1,11 @@
+{
+    "BTC-USD": {
+        "exchange": "RH",
+        "can_buy": false,
+        "profit_mult": 2.0,
+        "dip_mult": 3.0,
+        "last_buy_time": 0,
+        "total_invested": 0.0,
+        "last_reference_price": 50000.0
+    }
+}

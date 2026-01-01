@@ -127,8 +127,13 @@ def test_process_coin_no_quote(mock_config, mock_exchange_adapter, mock_portfoli
     """Test processing a coin when quote is unavailable."""
     trader = Trader(mock_config, mock_exchange_adapter)
     
-    # Mock adapter to return no quote
-    mock_exchange_adapter.get_unified_quote.return_value = None
+    # Mock adapter to return no quote for BTC-USD specifically
+    def mock_quote_none(symbol, exchange):
+        if symbol == 'BTC-USD':
+            return None
+        return {'ask': 50000.0, 'bid': 49900.0, 'exchange': 'RH'}
+    
+    mock_exchange_adapter.get_unified_quote.side_effect = mock_quote_none
     
     holdings = []
     state = mock_portfolio['BTC-USD']
