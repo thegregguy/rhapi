@@ -1,10 +1,19 @@
 import json
 import os
 import sys
+import threading
 from bot import get_unified_holdings, rh_client, cb_client
 from bugeater import bug
 
 PORTFOLIO_FILE = "portfolio.json"
+
+# Thread lock for atomic file operations
+_portfolio_lock = threading.Lock()
+
+# Portfolio cache
+_portfolio_cache = None
+_cache_timestamp = 0
+_cache_ttl = 5  # Cache TTL in seconds
 
 DEFAULT_SETTINGS = {
     "can_buy": False,
@@ -13,45 +22,82 @@ DEFAULT_SETTINGS = {
     "last_buy_time": 0
 }
 
-def load_portfolio():
+def normalize_symbol(symbol: str, exchange: str) -> str:
+    """Normalize symbol based on exchange"""
+    symbol = symbol.upper()
+    
+    if exchange == "RH":
+        if "-USDC" in symbol:
+            symbol = symbol.replace("-USDC", "-USD")
+        elif "-USD" not in symbol:
+            symbol += "-USD"
+    elif exchange == "CB":
+        if "-USD" in symbol and "-USDC" not in symbol:
+            symbol = symbol.replace("-USD", "-USDC")
+        elif "-USDC" not in symbol:
+            symbol += "-USDC"
+    
+    return symbol
+
+def load_portfolio(use_cache=True):
+    """Load portfolio with optional caching"""
+    global _portfolio_cache, _cache_timestamp
+    
+    import time
+    current_time = time.time()
+    
+    if use_cache and _portfolio_cache and (current_time - _cache_timestamp) < _cache_ttl:
+        return _portfolio_cache.copy()
+    
     bug.log(f"Loading {PORTFOLIO_FILE}...", label="IO")
     if not os.path.exists(PORTFOLIO_FILE): 
         return {}
     try:
-        with open(PORTFOLIO_FILE, 'r') as f: return json.load(f)
+        with open(PORTFOLIO_FILE, 'r') as f:
+            data = json.load(f)
+        _portfolio_cache = data.copy()
+        _cache_timestamp = current_time
+        return data
     except Exception as e: 
         bug.error("Failed to load portfolio", e)
         return {}
 
 def save_portfolio(data):
-    temp_file = PORTFOLIO_FILE + ".tmp"
-    try:
-        with open(temp_file, 'w') as f: json.dump(data, f, indent=4)
-        os.replace(temp_file, PORTFOLIO_FILE)
-        bug.success("Portfolio saved.")
-    except Exception as e:
-        bug.error("Failed to save portfolio", e)
+    """Save portfolio atomically with temporary file"""
+    global _portfolio_cache, _cache_timestamp
+    
+    with _portfolio_lock:
+        temp_file = PORTFOLIO_FILE + ".tmp"
+        try:
+            with open(temp_file, 'w') as f:
+                json.dump(data, f, indent=4)
+            os.replace(temp_file, PORTFOLIO_FILE)
+            
+            # Update cache
+            _portfolio_cache = data.copy()
+            import time
+            _cache_timestamp = time.time()
+            
+            bug.success("Portfolio saved.")
+        except Exception as e:
+            bug.error("Failed to save portfolio", e)
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
 
 def update_coin_state(symbol, new_data):
-    portfolio = load_portfolio()
-    # Normalize keys just in case, but keep suffix
-    symbol = symbol.upper()
-    if symbol in portfolio:
-        portfolio[symbol].update(new_data)
-        save_portfolio(portfolio)
+    """Update coin state atomically"""
+    with _portfolio_lock:
+        portfolio = load_portfolio(use_cache=False)
+        symbol = symbol.upper()
+        if symbol in portfolio:
+            portfolio[symbol].update(new_data)
+            save_portfolio(portfolio)
 
 def add_coin_interactive(symbol, exchange):
-    symbol = symbol.upper()
-    
-    # Auto-suffix based on exchange
-    if exchange == "RH":
-        if "-USD" not in symbol: symbol += "-USD"
-        if "-USDC" in symbol: symbol = symbol.replace("-USDC", "-USD")
-    elif exchange == "CB":
-        if "-USDC" not in symbol: symbol += "-USDC"
-        if "-USD" in symbol and "-USDC" not in symbol: symbol = symbol.replace("-USD", "-USDC")
+    """Add a coin to the portfolio interactively"""
+    symbol = normalize_symbol(symbol, exchange)
 
-    portfolio = load_portfolio()
+    portfolio = load_portfolio(use_cache=False)
     
     if symbol not in portfolio:
         portfolio[symbol] = DEFAULT_SETTINGS.copy()
