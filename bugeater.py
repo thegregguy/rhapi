@@ -3,15 +3,18 @@ import json
 import inspect
 import datetime
 import traceback
+import logging
 from dotenv import load_dotenv
 
 # Load env to check for debug flag immediately
 load_dotenv()
 
+
 class BugEater:
     """
     Universal Debugging Utility.
     eats bugs for breakfast.
+    Integrates with Python's logging module.
     """
     
     # ANSI Color Codes
@@ -30,6 +33,18 @@ class BugEater:
         debug_env = os.getenv("DEBUG", "False").lower()
         self.enabled = debug_env in ["true", "1", "yes", "on"]
         
+        # Configure Python logging
+        log_level_str = os.getenv("LOG_LEVEL", "INFO" if not self.enabled else "DEBUG").upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
+        
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        
+        self.logger = logging.getLogger('bugeater')
+        
         if self.enabled:
             print(f"{self.HEADER}🐛 BugEater Active: Debug Mode ON{self.ENDC}")
 
@@ -46,7 +61,11 @@ class BugEater:
 
     def log(self, message, label="INFO"):
         """Standard info log."""
-        if not self.enabled: return
+        # Always log to Python logging
+        self.logger.info(f"{label}: {message}")
+        
+        if not self.enabled:
+            return
         
         caller = self._get_caller()
         print(f"{self.CYAN}[{self._timestamp()}] {caller} | {label}: {self.ENDC}{message}")
@@ -59,12 +78,22 @@ class BugEater:
 
     def warn(self, message):
         """Yellow warning message."""
-        if not self.enabled: return
+        # Always log to Python logging
+        self.logger.warning(message)
+        
+        if not self.enabled:
+            return
         caller = self._get_caller()
         print(f"{self.WARNING}⚠️  [{caller}] WARNING: {message}{self.ENDC}")
 
     def error(self, message, exception=None):
         """Red error message. Prints full traceback if exception provided."""
+        # Always log to Python logging
+        if exception:
+            self.logger.error(f"{message}: {exception}", exc_info=True)
+        else:
+            self.logger.error(message)
+        
         # Errors should usually print even in production
         caller = self._get_caller()
         print(f"{self.FAIL}❌ [{self._timestamp()}] {caller} ERROR: {message}{self.ENDC}")
