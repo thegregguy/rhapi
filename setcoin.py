@@ -13,21 +13,76 @@ DEFAULT_SETTINGS = {
     "last_buy_time": 0
 }
 
-def load_portfolio():
+# Cache for portfolio during a scan to avoid multiple file reads
+_portfolio_cache = None
+
+
+def normalize_symbol(symbol: str, exchange: str) -> str:
+    """
+    Normalize symbol to use correct suffix for the exchange.
+    RH uses -USD, CB uses -USDC.
+    """
+    # Remove any existing suffixes (order matters: check longer suffix first)
+    if symbol.endswith("-USDC"):
+        base = symbol[:-5]  # Remove "-USDC"
+    elif symbol.endswith("-USD"):
+        base = symbol[:-4]  # Remove "-USD"
+    else:
+        base = symbol
+    
+    if exchange == "RH":
+        return f"{base}-USD"
+    elif exchange == "CB":
+        return f"{base}-USDC"
+    else:
+        raise ValueError(f"Unknown exchange: {exchange}")
+
+def load_portfolio(use_cache=False):
+    """Load portfolio from file, optionally using cache."""
+    global _portfolio_cache
+    
+    if use_cache and _portfolio_cache is not None:
+        return _portfolio_cache
+    
     bug.log(f"Loading {PORTFOLIO_FILE}...", label="IO")
     if not os.path.exists(PORTFOLIO_FILE): 
         return {}
     try:
-        with open(PORTFOLIO_FILE, 'r') as f: return json.load(f)
+        with open(PORTFOLIO_FILE, 'r') as f:
+            portfolio = json.load(f)
+            if use_cache:
+                _portfolio_cache = portfolio
+            return portfolio
     except Exception as e: 
         bug.error("Failed to load portfolio", e)
         return {}
 
-def save_portfolio(data):
+
+def clear_portfolio_cache():
+    """Clear the portfolio cache."""
+    global _portfolio_cache
+    _portfolio_cache = None
+
+def save_portfolio(data, force=False):
+    """
+    Atomically save portfolio to disk.
+    Only writes if force=True or data has changed.
+    """
+    global _portfolio_cache
+    
+    # Check if data has actually changed (unless forced)
+    if not force:
+        current = load_portfolio()
+        if current == data:
+            bug.log("Portfolio unchanged, skipping save.", label="IO")
+            return
+    
     temp_file = PORTFOLIO_FILE + ".tmp"
     try:
-        with open(temp_file, 'w') as f: json.dump(data, f, indent=4)
+        with open(temp_file, 'w') as f:
+            json.dump(data, f, indent=4)
         os.replace(temp_file, PORTFOLIO_FILE)
+        _portfolio_cache = None  # Invalidate cache
         bug.success("Portfolio saved.")
     except Exception as e:
         bug.error("Failed to save portfolio", e)
@@ -43,13 +98,8 @@ def update_coin_state(symbol, new_data):
 def add_coin_interactive(symbol, exchange):
     symbol = symbol.upper()
     
-    # Auto-suffix based on exchange
-    if exchange == "RH":
-        if "-USD" not in symbol: symbol += "-USD"
-        if "-USDC" in symbol: symbol = symbol.replace("-USDC", "-USD")
-    elif exchange == "CB":
-        if "-USDC" not in symbol: symbol += "-USDC"
-        if "-USD" in symbol and "-USDC" not in symbol: symbol = symbol.replace("-USD", "-USDC")
+    # Use normalize_symbol helper
+    symbol = normalize_symbol(symbol, exchange)
 
     portfolio = load_portfolio()
     
@@ -58,7 +108,7 @@ def add_coin_interactive(symbol, exchange):
         portfolio[symbol]["exchange"] = exchange
         portfolio[symbol]["total_invested"] = 0.0
         portfolio[symbol]["last_reference_price"] = 0.0
-        save_portfolio(portfolio)
+        save_portfolio(portfolio, force=True)
         bug.success(f"Added {symbol}")
         return True
     return False
