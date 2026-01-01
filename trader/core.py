@@ -118,6 +118,7 @@ class Trader:
         # Determine mode
         mode = "WATCH"
         profit_pct = Decimal("0")
+        needs_ref_update = False
         
         if current_val > Decimal("1.00"):
             mode = "RISK_ON"
@@ -127,6 +128,7 @@ class Trader:
         else:
             if last_ref == 0:
                 last_ref = current_bid
+                needs_ref_update = True  # Flag to update in portfolio
             profit_pct = (current_bid - last_ref) / last_ref
         
         # UI output
@@ -143,7 +145,7 @@ class Trader:
             "current_value_usd": float(current_val)
         }
         
-        if mode == "WATCH" and last_ref == 0:
+        if needs_ref_update:
             updates["last_reference_price"] = float(current_bid)
         
         # Execute trading logic

@@ -194,7 +194,7 @@ class TestProcessCoin:
     def test_process_coin_watch_mode_updates_reference(
         self, mock_quote, mock_update, mock_config, sample_portfolio
     ):
-        """Test that watch mode updates reference price."""
+        """Test that watch mode updates reference price when it's zero."""
         mock_quote.return_value = {
             'ask': 100.0,
             'bid': 100.0,
@@ -210,10 +210,11 @@ class TestProcessCoin:
         
         trader.process_coin("BTC-USD", coin_state)
         
-        # Should update reference price
+        # Should update state with reference price
         assert mock_update.called
         updates = mock_update.call_args[0][1]
         assert "last_reference_price" in updates
+        assert updates["last_reference_price"] == 100.0
 
 
 class TestRunLoop:
@@ -224,19 +225,19 @@ class TestRunLoop:
     @patch('trader.core.get_unified_quote')
     @patch('trader.core.update_coin_state')
     def test_run_single_scan(
-        self, mock_update, mock_quote, mock_holdings, mock_load,
+        self, mock_update, mock_quote, mock_holdings_func, mock_load,
         mock_config, sample_portfolio, mock_holdings
     ):
         """Test single scan execution."""
         mock_load.return_value = sample_portfolio
-        mock_holdings.return_value = mock_holdings
+        mock_holdings_func.return_value = mock_holdings
         mock_quote.return_value = {'ask': 100.0, 'bid': 100.0, 'exchange': 'RH'}
         
         trader = Trader(mock_config)
         trader.run_single_scan()
         
         # Should fetch holdings once
-        mock_holdings.assert_called_once()
+        mock_holdings_func.assert_called_once()
         
         # Should process all coins
         assert mock_quote.call_count >= 2
@@ -291,7 +292,7 @@ class TestConcurrency:
     @patch('trader.core.get_unified_quote')
     @patch('trader.core.update_coin_state')
     def test_concurrent_processing(
-        self, mock_update, mock_quote, mock_holdings, mock_load,
+        self, mock_update, mock_quote, mock_holdings_func, mock_load,
         sample_portfolio, mock_holdings
     ):
         """Test that concurrent processing works."""
@@ -300,7 +301,7 @@ class TestConcurrency:
         config.auto_dry_run = True
         
         mock_load.return_value = sample_portfolio
-        mock_holdings.return_value = mock_holdings
+        mock_holdings_func.return_value = mock_holdings
         mock_quote.return_value = {'ask': 100.0, 'bid': 100.0, 'exchange': 'RH'}
         
         trader = Trader(config)

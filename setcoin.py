@@ -101,7 +101,13 @@ def normalize_symbol(symbol: str, exchange: str) -> str:
     Returns:
         Normalized symbol
     """
-    base_symbol = symbol.replace("-USD", "").replace("-USDC", "")
+    # Remove suffixes in the correct order (USDC first, then USD)
+    if symbol.endswith("-USDC"):
+        base_symbol = symbol[:-5]  # Remove "-USDC"
+    elif symbol.endswith("-USD"):
+        base_symbol = symbol[:-4]  # Remove "-USD"
+    else:
+        base_symbol = symbol
     
     if exchange == "RH":
         return f"{base_symbol}-USD"
