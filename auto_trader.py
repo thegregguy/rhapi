@@ -19,6 +19,8 @@ from bot import (
     rh_client,
     cb_client
 )
+from trader.core import Trader
+from trader.config import Config
 
 # --- CONFIG ---
 DEFAULT_BUY_USD = 1.00 
@@ -78,6 +80,31 @@ def run_diagnostics():
 #       TRADING LOGIC
 # ===========================
 
+def run_trading_loop():
+    """
+    Main trading loop using the new modular Trader class.
+    Maintains backward compatibility with the original interface.
+    """
+    clear_screen()
+    bug.section("Starting Dual-Exchange Auto Trader")
+    
+    # Initialize trader with configuration from environment
+    config = Config()
+    trader = Trader(config)
+    
+    if config.dry_run:
+        print(f"{bug.WARNING}⚠️  DRY RUN MODE ENABLED - No real orders will be placed{bug.ENDC}")
+    
+    print(f"{bug.BLUE}Press CTRL+C to stop and return to menu.{bug.ENDC}")
+    
+    try:
+        trader.run_loop()
+    except KeyboardInterrupt:
+        bug.log("\nStopping Trader... Returning to Menu.")
+        time.sleep(1)
+
+
+# Keep legacy process_coin for backward compatibility if needed elsewhere
 def process_coin(symbol, state):
     exchange = state.get("exchange", "RH")
     
@@ -182,46 +209,6 @@ def process_coin(symbol, state):
                     time.sleep(2)
             else:
                 bug.error(f"Not enough funds on {exchange} to buy {symbol}")
-
-# ===========================
-#       INTERACTIVE MENU
-# ===========================
-
-def run_trading_loop():
-    clear_screen()
-    bug.section("Starting Dual-Exchange Auto Trader")
-    print(f"{bug.BLUE}Press CTRL+C to stop and return to menu.{bug.ENDC}")
-    
-    try:
-        while True:
-            portfolio = load_portfolio()
-            if not portfolio:
-                bug.warn("Portfolio empty. Please add coins first.")
-                pause()
-                break
-            
-            print(f"\n--- SCAN: {time.strftime('%H:%M:%S')} ---")
-            
-            rh_count = 0
-            cb_count = 0
-            
-            for symbol, data in portfolio.items():
-                try:
-                    process_coin(symbol, data)
-                    if data.get('exchange') == 'RH': rh_count += 1
-                    else: cb_count += 1
-                except KeyboardInterrupt:
-                    raise 
-                except Exception as e:
-                    bug.error(f"Error processing {symbol}", e)
-            
-            print(f"--- Checked: {rh_count} RH | {cb_count} CB ---")
-            print("Sleeping...")
-            time.sleep(15)
-            
-    except KeyboardInterrupt:
-        bug.log("\nStopping Trader... Returning to Menu.")
-        time.sleep(1)
 
 def menu_manage_portfolio():
     while True:
