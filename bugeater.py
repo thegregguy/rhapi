@@ -3,14 +3,16 @@ import json
 import inspect
 import datetime
 import traceback
+import logging
 from dotenv import load_dotenv
 
 # Load env to check for debug flag immediately
 load_dotenv()
 
+
 class BugEater:
     """
-    Universal Debugging Utility.
+    Universal Debugging Utility with standard logging bridge.
     eats bugs for breakfast.
     """
     
@@ -29,6 +31,15 @@ class BugEater:
         # check for string 'True' or '1'
         debug_env = os.getenv("DEBUG", "False").lower()
         self.enabled = debug_env in ["true", "1", "yes", "on"]
+        
+        # Set up standard logging
+        log_level = logging.DEBUG if self.enabled else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        self.logger = logging.getLogger('trader')
         
         if self.enabled:
             print(f"{self.HEADER}🐛 BugEater Active: Debug Mode ON{self.ENDC}")
@@ -50,31 +61,37 @@ class BugEater:
         
         caller = self._get_caller()
         print(f"{self.CYAN}[{self._timestamp()}] {caller} | {label}: {self.ENDC}{message}")
+        self.logger.debug(f"{caller} | {label}: {message}")
 
     def success(self, message):
         """Green success message (Always prints, even if debug is off, unless forced)"""
         # Usually we want success messages visible in production too, 
         # but if you strictly want them hidden, add: if not self.enabled: return
         print(f"{self.GREEN}✅ {message}{self.ENDC}")
+        self.logger.info(message)
 
     def warn(self, message):
         """Yellow warning message."""
         if not self.enabled: return
         caller = self._get_caller()
         print(f"{self.WARNING}⚠️  [{caller}] WARNING: {message}{self.ENDC}")
+        self.logger.warning(f"{caller}: {message}")
 
     def error(self, message, exception=None):
         """Red error message. Prints full traceback if exception provided."""
         # Errors should usually print even in production
         caller = self._get_caller()
         print(f"{self.FAIL}❌ [{self._timestamp()}] {caller} ERROR: {message}{self.ENDC}")
+        self.logger.error(f"{caller}: {message}")
         if exception:
             print(f"{self.FAIL}{traceback.format_exc()}{self.ENDC}")
+            self.logger.error(traceback.format_exc())
 
     def section(self, title):
         """Creates a visual separator for logs."""
         if not self.enabled: return
         print(f"\n{self.HEADER}{'='*10} {title.upper()} {'='*10}{self.ENDC}")
+        self.logger.debug(f"=== {title.upper()} ===")
 
     def inspect(self, data, label="DATA INSPECTION"):
         """Pretty prints dictionaries or JSON objects."""
@@ -90,9 +107,11 @@ class BugEater:
             pretty = json.dumps(data, indent=2, default=str)
             print(f"\n{self.BLUE}🧐 [{caller}] {label}:{self.ENDC}")
             print(f"{pretty}\n")
+            self.logger.debug(f"{caller} | {label}: {pretty}")
         except Exception as e:
             print(f"{self.FAIL}Could not inspect data: {e}{self.ENDC}")
             print(data)
+            self.logger.error(f"Could not inspect data: {e}")
 
 # Create a Singleton instance so we don't have to init it everywhere
 bug = BugEater()

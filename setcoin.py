@@ -1,10 +1,14 @@
 import json
 import os
 import sys
+import threading
 from bot import get_unified_holdings, rh_client, cb_client
 from bugeater import bug
 
 PORTFOLIO_FILE = "portfolio.json"
+
+# Thread lock for safe concurrent portfolio updates
+_portfolio_lock = threading.Lock()
 
 DEFAULT_SETTINGS = {
     "can_buy": False,
@@ -24,21 +28,31 @@ def load_portfolio():
         return {}
 
 def save_portfolio(data):
-    temp_file = PORTFOLIO_FILE + ".tmp"
-    try:
-        with open(temp_file, 'w') as f: json.dump(data, f, indent=4)
-        os.replace(temp_file, PORTFOLIO_FILE)
-        bug.success("Portfolio saved.")
-    except Exception as e:
-        bug.error("Failed to save portfolio", e)
+    # Thread-safe save with lock
+    with _portfolio_lock:
+        temp_file = PORTFOLIO_FILE + ".tmp"
+        try:
+            with open(temp_file, 'w') as f: json.dump(data, f, indent=4)
+            os.replace(temp_file, PORTFOLIO_FILE)
+            bug.success("Portfolio saved.")
+        except Exception as e:
+            bug.error("Failed to save portfolio", e)
 
 def update_coin_state(symbol, new_data):
-    portfolio = load_portfolio()
-    # Normalize keys just in case, but keep suffix
-    symbol = symbol.upper()
-    if symbol in portfolio:
-        portfolio[symbol].update(new_data)
-        save_portfolio(portfolio)
+    # Thread-safe update with lock
+    with _portfolio_lock:
+        portfolio = load_portfolio()
+        # Normalize keys just in case, but keep suffix
+        symbol = symbol.upper()
+        if symbol in portfolio:
+            portfolio[symbol].update(new_data)
+            # Save within the same lock to ensure atomicity
+            temp_file = PORTFOLIO_FILE + ".tmp"
+            try:
+                with open(temp_file, 'w') as f: json.dump(portfolio, f, indent=4)
+                os.replace(temp_file, PORTFOLIO_FILE)
+            except Exception as e:
+                bug.error("Failed to save portfolio", e)
 
 def add_coin_interactive(symbol, exchange):
     symbol = symbol.upper()
