@@ -245,6 +245,8 @@ class ExchangeAdapter:
             if '.' in cleaned:
                 precision = len(cleaned.split('.')[1])
             
-            return f"{{:.{precision}f}}".format(valid_qty)
+            # Format with dynamic precision
+            format_str = f"{{:.{precision}f}}"
+            return format_str.format(valid_qty)
         except:
             return "{:.6f}".format(raw_qty)
