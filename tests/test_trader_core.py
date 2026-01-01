@@ -50,26 +50,35 @@ def test_trader_initialization(mock_update, mock_load, mock_router_class, mock_c
     assert trader.holdings_cache_time == 0
 
 
+@patch('trader.core.time')
 @patch('trader.core.UnifiedExchangeRouter')
 @patch('trader.core.load_portfolio')
 @patch('trader.core.update_coin_state')
-def test_trader_get_holdings_with_cache(mock_update, mock_load, mock_router_class, mock_config, mock_router):
+def test_trader_get_holdings_with_cache(mock_update, mock_load, mock_router_class, mock_time, mock_config, mock_router):
     """Test holdings caching mechanism"""
     mock_router_class.return_value = mock_router
+    mock_router.get_all_holdings.return_value = [{'symbol': 'BTC-USD', 'qty': 1.0, 'exchange': 'RH'}]
+    mock_time.time.return_value = 1000.0  # Fixed time for caching
     
     trader = Trader(mock_config)
     
     # First call should fetch from exchange
     holdings1 = trader.get_holdings()
     assert mock_router.get_all_holdings.call_count == 1
+    assert len(holdings1) == 1
     
-    # Second call should use cache
+    # Second call should use cache (same time, holdings_cache is not empty)
     holdings2 = trader.get_holdings()
-    assert mock_router.get_all_holdings.call_count == 1
+    assert mock_router.get_all_holdings.call_count == 1  # Should still be 1
+    
+    # Advance time beyond TTL
+    mock_time.time.return_value = 2000.0
+    holdings3 = trader.get_holdings()
+    assert mock_router.get_all_holdings.call_count == 2
     
     # Force refresh should fetch again
-    holdings3 = trader.get_holdings(force_refresh=True)
-    assert mock_router.get_all_holdings.call_count == 2
+    holdings4 = trader.get_holdings(force_refresh=True)
+    assert mock_router.get_all_holdings.call_count == 3
 
 
 @patch('trader.core.UnifiedExchangeRouter')

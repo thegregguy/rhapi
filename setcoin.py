@@ -2,7 +2,6 @@ import json
 import os
 import sys
 import threading
-from bot import get_unified_holdings, rh_client, cb_client
 from bugeater import bug
 
 PORTFOLIO_FILE = "portfolio.json"
@@ -62,27 +61,31 @@ def load_portfolio(use_cache=True):
         bug.error("Failed to load portfolio", e)
         return {}
 
-def save_portfolio(data):
-    """Save portfolio atomically with temporary file"""
+def _save_portfolio_unlocked(data):
+    """Internal save portfolio function without locking (assumes lock is already held)"""
     global _portfolio_cache, _cache_timestamp
     
+    temp_file = PORTFOLIO_FILE + ".tmp"
+    try:
+        with open(temp_file, 'w') as f:
+            json.dump(data, f, indent=4)
+        os.replace(temp_file, PORTFOLIO_FILE)
+        
+        # Update cache
+        _portfolio_cache = data.copy()
+        import time
+        _cache_timestamp = time.time()
+        
+        bug.success("Portfolio saved.")
+    except Exception as e:
+        bug.error("Failed to save portfolio", e)
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+
+def save_portfolio(data):
+    """Save portfolio atomically with temporary file"""
     with _portfolio_lock:
-        temp_file = PORTFOLIO_FILE + ".tmp"
-        try:
-            with open(temp_file, 'w') as f:
-                json.dump(data, f, indent=4)
-            os.replace(temp_file, PORTFOLIO_FILE)
-            
-            # Update cache
-            _portfolio_cache = data.copy()
-            import time
-            _cache_timestamp = time.time()
-            
-            bug.success("Portfolio saved.")
-        except Exception as e:
-            bug.error("Failed to save portfolio", e)
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
+        _save_portfolio_unlocked(data)
 
 def update_coin_state(symbol, new_data):
     """Update coin state atomically"""
@@ -91,7 +94,7 @@ def update_coin_state(symbol, new_data):
         symbol = symbol.upper()
         if symbol in portfolio:
             portfolio[symbol].update(new_data)
-            save_portfolio(portfolio)
+            _save_portfolio_unlocked(portfolio)  # Use unlocked version since we already have the lock
 
 def add_coin_interactive(symbol, exchange):
     """Add a coin to the portfolio interactively"""
@@ -112,8 +115,12 @@ def add_coin_interactive(symbol, exchange):
 def audit_portfolio():
     """
     Scans both RH and CB and merges into portfolio.json
+    Uses lazy import to avoid initialization at module level
     """
-    portfolio = load_portfolio()
+    # Lazy import to avoid initialization issues in tests
+    from bot import get_unified_holdings
+    
+    portfolio = load_portfolio(use_cache=False)
     holdings = get_unified_holdings() 
     
     bug.section(f"Auditing {len(holdings)} Holdings")

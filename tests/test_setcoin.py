@@ -154,25 +154,25 @@ def test_portfolio_caching():
         assert p1 == p2
 
 
-@patch('setcoin.get_unified_holdings')
-def test_audit_portfolio(mock_holdings, temp_portfolio_file):
+def test_audit_portfolio(temp_portfolio_file):
     """Test portfolio audit functionality"""
     from setcoin import audit_portfolio
     
-    # Mock holdings from exchanges
-    mock_holdings.return_value = [
-        {'symbol': 'BTC-USD', 'qty': 1.5, 'exchange': 'RH'},
-        {'symbol': 'ETH-USDC', 'qty': 10.0, 'exchange': 'CB'}
-    ]
-    
-    audit_portfolio()
-    
-    portfolio = load_portfolio(use_cache=False)
-    
-    assert 'BTC-USD' in portfolio
-    assert 'ETH-USDC' in portfolio
-    assert portfolio['BTC-USD']['exchange'] == 'RH'
-    assert portfolio['ETH-USDC']['exchange'] == 'CB'
+    # We need to patch bot.get_unified_holdings since audit_portfolio imports it
+    with patch('bot.get_unified_holdings') as mock_bot_holdings:
+        mock_bot_holdings.return_value = [
+            {'symbol': 'BTC-USD', 'qty': 1.5, 'exchange': 'RH'},
+            {'symbol': 'ETH-USDC', 'qty': 10.0, 'exchange': 'CB'}
+        ]
+        
+        audit_portfolio()
+        
+        portfolio = load_portfolio(use_cache=False)
+        
+        assert 'BTC-USD' in portfolio
+        assert 'ETH-USDC' in portfolio
+        assert portfolio['BTC-USD']['exchange'] == 'RH'
+        assert portfolio['ETH-USDC']['exchange'] == 'CB'
 
 
 def test_thread_safety():
@@ -182,4 +182,7 @@ def test_thread_safety():
     
     # This is a basic test to ensure the lock exists
     assert hasattr(setcoin, '_portfolio_lock')
-    assert isinstance(setcoin._portfolio_lock, threading.Lock)
+    # threading.Lock is actually a function that returns a lock object
+    # So we check if it's a lock-like object by checking for acquire/release methods
+    assert hasattr(setcoin._portfolio_lock, 'acquire')
+    assert hasattr(setcoin._portfolio_lock, 'release')
