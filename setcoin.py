@@ -22,8 +22,13 @@ def normalize_symbol(symbol: str, exchange: str) -> str:
     Normalize symbol to use correct suffix for the exchange.
     RH uses -USD, CB uses -USDC.
     """
-    # Remove any existing suffixes
-    base = symbol.replace("-USD", "").replace("-USDC", "")
+    # Remove any existing suffixes (order matters: check longer suffix first)
+    if symbol.endswith("-USDC"):
+        base = symbol[:-5]  # Remove "-USDC"
+    elif symbol.endswith("-USD"):
+        base = symbol[:-4]  # Remove "-USD"
+    else:
+        base = symbol
     
     if exchange == "RH":
         return f"{base}-USD"

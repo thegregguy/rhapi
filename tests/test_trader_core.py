@@ -84,8 +84,9 @@ class TestTraderCore(unittest.TestCase):
     
     @patch('trader.core.get_unified_holdings')
     @patch('trader.core.get_unified_quote')
+    @patch('trader.core.get_account_buying_power')
     @patch('trader.core.unified_place_order')
-    def test_dry_run_no_orders_placed(self, mock_order, mock_quote, mock_holdings):
+    def test_dry_run_no_orders_placed(self, mock_order, mock_buying_power, mock_quote, mock_holdings):
         """Test that no orders are placed in dry-run mode."""
         # Set up mocks
         mock_holdings.return_value = []
@@ -94,6 +95,7 @@ class TestTraderCore(unittest.TestCase):
             'bid': 49900.0,
             'exchange': 'RH'
         }
+        mock_buying_power.return_value = 100.0  # Enough funds to buy
         
         # Create a state that would trigger a buy
         state = {
