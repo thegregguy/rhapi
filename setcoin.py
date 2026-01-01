@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+import hashlib
+from typing import Dict, Any, Optional
 from bot import get_unified_holdings, rh_client, cb_client
 from bugeater import bug
 
@@ -13,44 +15,162 @@ DEFAULT_SETTINGS = {
     "last_buy_time": 0
 }
 
+# In-memory cache for portfolio to reduce disk reads
+_portfolio_cache: Optional[Dict[str, Any]] = None
+_portfolio_hash: Optional[str] = None
+
+def _hash_portfolio(data: Dict[str, Any]) -> str:
+    """
+    Generate a hash of the portfolio data for change detection.
+    
+    Args:
+        data: Portfolio dictionary
+    
+    Returns:
+        MD5 hash of the serialized portfolio
+    """
+    serialized = json.dumps(data, sort_keys=True)
+    return hashlib.md5(serialized.encode()).hexdigest()
+
+
+def normalize_symbol(symbol: str, exchange: str) -> str:
+    """
+    Normalize symbol format for the given exchange.
+    
+    Args:
+        symbol: Base symbol (e.g., "BTC", "BTC-USD")
+        exchange: Target exchange ("RH" or "CB")
+    
+    Returns:
+        Normalized symbol string
+    """
+    symbol = symbol.upper()
+    
+    if exchange == "RH":
+        if "-USDC" in symbol:
+            symbol = symbol.replace("-USDC", "-USD")
+        elif "-USD" not in symbol:
+            symbol = f"{symbol}-USD"
+    elif exchange == "CB":
+        if "-USD" in symbol and "-USDC" not in symbol:
+            symbol = symbol.replace("-USD", "-USDC")
+        elif "-USDC" not in symbol:
+            symbol = f"{symbol}-USDC"
+    
+    return symbol
+
+
 def load_portfolio():
+    """
+    Load portfolio from disk with caching.
+    
+    Returns:
+        Portfolio dictionary
+    """
+    global _portfolio_cache, _portfolio_hash
+    
     bug.log(f"Loading {PORTFOLIO_FILE}...", label="IO")
-    if not os.path.exists(PORTFOLIO_FILE): 
+    if not os.path.exists(PORTFOLIO_FILE):
+        _portfolio_cache = {}
+        _portfolio_hash = _hash_portfolio({})
         return {}
+    
     try:
-        with open(PORTFOLIO_FILE, 'r') as f: return json.load(f)
-    except Exception as e: 
+        with open(PORTFOLIO_FILE, 'r') as f:
+            data = json.load(f)
+            new_hash = _hash_portfolio(data)
+            
+            # Update cache
+            _portfolio_cache = data
+            _portfolio_hash = new_hash
+            
+            return data
+    except Exception as e:
         bug.error("Failed to load portfolio", e)
         return {}
 
+
+def get_portfolio() -> Dict[str, Any]:
+    """
+    Get cached portfolio or load from disk.
+    
+    Returns:
+        Portfolio dictionary
+    """
+    global _portfolio_cache
+    
+    if _portfolio_cache is not None:
+        return _portfolio_cache.copy()
+    
+    return load_portfolio()
+
 def save_portfolio(data):
+    """
+    Save portfolio to disk atomically, only if changed.
+    
+    Args:
+        data: Portfolio dictionary to save
+    """
+    global _portfolio_cache, _portfolio_hash
+    
+    new_hash = _hash_portfolio(data)
+    
+    # Skip save if data hasn't changed
+    if _portfolio_hash == new_hash:
+        bug.log("Portfolio unchanged, skipping save", label="IO")
+        return
+    
     temp_file = PORTFOLIO_FILE + ".tmp"
     try:
-        with open(temp_file, 'w') as f: json.dump(data, f, indent=4)
+        with open(temp_file, 'w') as f:
+            json.dump(data, f, indent=4)
         os.replace(temp_file, PORTFOLIO_FILE)
+        
+        # Update cache
+        _portfolio_cache = data.copy()
+        _portfolio_hash = new_hash
+        
         bug.success("Portfolio saved.")
     except Exception as e:
         bug.error("Failed to save portfolio", e)
 
 def update_coin_state(symbol, new_data):
+    """
+    Update state for a specific coin in the portfolio.
+    
+    Args:
+        symbol: Coin symbol
+        new_data: Dictionary of updates to apply
+    """
     portfolio = load_portfolio()
     # Normalize keys just in case, but keep suffix
     symbol = symbol.upper()
     if symbol in portfolio:
-        portfolio[symbol].update(new_data)
-        save_portfolio(portfolio)
+        # Check if data actually changed before updating
+        changed = False
+        for key, value in new_data.items():
+            if portfolio[symbol].get(key) != value:
+                changed = True
+                break
+        
+        if changed:
+            portfolio[symbol].update(new_data)
+            save_portfolio(portfolio)
+        else:
+            bug.log(f"No changes detected for {symbol}, skipping save", label="IO")
 
 def add_coin_interactive(symbol, exchange):
-    symbol = symbol.upper()
+    """
+    Add a new coin to the portfolio interactively.
     
-    # Auto-suffix based on exchange
-    if exchange == "RH":
-        if "-USD" not in symbol: symbol += "-USD"
-        if "-USDC" in symbol: symbol = symbol.replace("-USDC", "-USD")
-    elif exchange == "CB":
-        if "-USDC" not in symbol: symbol += "-USDC"
-        if "-USD" in symbol and "-USDC" not in symbol: symbol = symbol.replace("-USD", "-USDC")
-
+    Args:
+        symbol: Coin symbol
+        exchange: Exchange identifier ("RH" or "CB")
+    
+    Returns:
+        True if coin was added, False if it already exists
+    """
+    symbol = normalize_symbol(symbol, exchange)
     portfolio = load_portfolio()
     
     if symbol not in portfolio:

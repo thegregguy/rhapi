@@ -3,14 +3,16 @@ import json
 import inspect
 import datetime
 import traceback
+import logging
 from dotenv import load_dotenv
 
 # Load env to check for debug flag immediately
 load_dotenv()
 
+
 class BugEater:
     """
-    Universal Debugging Utility.
+    Universal Debugging Utility with Python logging integration.
     eats bugs for breakfast.
     """
     
@@ -30,8 +32,22 @@ class BugEater:
         debug_env = os.getenv("DEBUG", "False").lower()
         self.enabled = debug_env in ["true", "1", "yes", "on"]
         
+        # Configure Python logging
+        log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
+        
+        # Set up root logger
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        
+        self.logger = logging.getLogger('rhapi')
+        
         if self.enabled:
             print(f"{self.HEADER}🐛 BugEater Active: Debug Mode ON{self.ENDC}")
+            self.logger.setLevel(logging.DEBUG)
 
     def _get_caller(self):
         """Finds the filename and line number of the script calling the debugger."""
@@ -50,6 +66,7 @@ class BugEater:
         
         caller = self._get_caller()
         print(f"{self.CYAN}[{self._timestamp()}] {caller} | {label}: {self.ENDC}{message}")
+        self.logger.info(f"[{label}] {message}")
 
     def success(self, message):
         """Green success message (Always prints, even if debug is off, unless forced)"""
@@ -62,6 +79,7 @@ class BugEater:
         if not self.enabled: return
         caller = self._get_caller()
         print(f"{self.WARNING}⚠️  [{caller}] WARNING: {message}{self.ENDC}")
+        self.logger.warning(message)
 
     def error(self, message, exception=None):
         """Red error message. Prints full traceback if exception provided."""
@@ -70,6 +88,9 @@ class BugEater:
         print(f"{self.FAIL}❌ [{self._timestamp()}] {caller} ERROR: {message}{self.ENDC}")
         if exception:
             print(f"{self.FAIL}{traceback.format_exc()}{self.ENDC}")
+            self.logger.error(f"{message}", exc_info=exception)
+        else:
+            self.logger.error(message)
 
     def section(self, title):
         """Creates a visual separator for logs."""
